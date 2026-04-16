@@ -119,7 +119,14 @@ if [ -d "$HOME/.claude/plugins" ]; then
   podman cp "$HOME/.claude/plugins/." "$CONTAINER_NAME:/home/node/.claude/plugins"
 fi
 
+# Fix ownership for plugins — podman cp copies files as root
+# Only chown plugins dir, not all of .claude (contains ro mounts).
+podman exec -u 0 "$CONTAINER_NAME" chown -R node:node /home/node/.claude/plugins 2>/dev/null || true
+
+podman exec "$CONTAINER_NAME" bash -c "git config --global --add safe.directory /home/node/project"
+
 # ── Copy project into container ───────────────────────────────────────
+# Done last so we don't waste time on a large copy if mounts or config fail.
 echo "Copying project into container..."
 podman cp "$(pwd)/." "$CONTAINER_NAME:/home/node/project"
 
@@ -138,10 +145,8 @@ if [ -f "$(pwd)/.git" ]; then
   podman cp "$WORKTREE_GIT_DIR/index" "$CONTAINER_NAME:/home/node/project/.git/index" 2>/dev/null || true
 fi
 
-# Fix ownership — podman cp copies files as root
-podman exec -u 0 "$CONTAINER_NAME" chown -R node:node /home/node/project /home/node/.claude
-
-podman exec "$CONTAINER_NAME" bash -c "cd /home/node/project && git config --global --add safe.directory /home/node/project"
+# Fix ownership for project — podman cp copies files as root
+podman exec -u 0 "$CONTAINER_NAME" chown -R node:node /home/node/project
 
 # ── Attach a shell ────────────────────────────────────────────────────
 echo "Container running. Attaching shell (exit won't stop the container)..."
