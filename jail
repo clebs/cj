@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Build and run Claude Code in a persistent container.
+# Usage:
+#   ./jail          — start container, attach a shell
+#   ./jail build    — force rebuild the image, then start
+#   ./jail sync     — copy changes from container back to host
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+IMAGE_NAME="claude-jail"
+CONTAINER_NAME="claude-$(basename "$(pwd)" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g')"
+
+FORCE_BUILD=false
+if [ "${1:-}" = "build" ]; then
+  FORCE_BUILD=true
+  shift
+fi
+
+# ── Sync changes from container back to host ─────────────────────────
+if [ "${1:-}" = "sync" ]; then
+  if ! podman ps -q -f name="^${CONTAINER_NAME}$" | grep -q .; then
+    echo "Error: container $CONTAINER_NAME is not running." >&2
+    exit 1
+  fi
+  echo "Syncing changes from $CONTAINER_NAME to $(pwd)..."
+
+  # Get all changed files from the container
+  STATUS=$(podman exec -w /home/node/project "$CONTAINER_NAME" \
+    git status --porcelain -uall)
+  if [ -z "$STATUS" ]; then
+    echo "No changes to sync."
+    exit 0
+  fi
+
+  # Delete locally any files deleted in the container
+  echo "$STATUS" | grep '^ D ' | sed 's/^...//' | while IFS= read -r f; do
+    [ -n "$f" ] && rm -f "$(pwd)/$f" && echo "  deleted: $f"
+  done || true
+
+  # Copy modified/added files one by one
+  MODIFIED=$(echo "$STATUS" | grep -v '^ D ' | sed 's/^...//' || true)
+  if [ -z "$MODIFIED" ]; then
+    echo "Done. Review changes with 'git diff'."
+    exit 0
+  fi
+
+  while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    mkdir -p "$(dirname "$f")"
+    podman cp "$CONTAINER_NAME:/home/node/project/$f" "$f"
+    echo "  synced: $f"
+  done <<<"$MODIFIED"
+
+  echo "Done. Review changes with 'git diff'."
+  exit 0
+fi
+
+# ── Reuse running container if it exists ──────────────────────────────
+if podman ps -q -f name="^${CONTAINER_NAME}$" | grep -q .; then
+  echo "Container $CONTAINER_NAME is already running. Attaching..."
+  exec podman exec -w /home/node/project -it "$CONTAINER_NAME" zsh
+fi
+
+# ── Build (only if image doesn't exist) ───────────────────────────────
+if $FORCE_BUILD || ! podman image exists "$IMAGE_NAME"; then
+  echo "Building image..."
+  podman build -t "$IMAGE_NAME" "$SCRIPT_DIR"
+else
+  echo "Image $IMAGE_NAME already exists, skipping build."
+fi
+
+# Clean up stopped container with same name
+if podman ps -aq -f name="^${CONTAINER_NAME}$" | grep -q .; then
+  echo "Removing stopped container..."
+  podman rm "$CONTAINER_NAME" >/dev/null
+fi
+
+# ── Collect credentials to mount ───────────────────────────────────────
+MOUNTS=()
+
+# Claude settings & project memory
+MOUNTS+=(-v "$HOME/.claude/settings.json:/home/node/.claude/settings.json:ro")
+MOUNTS+=(-v "$HOME/.claude/projects:/home/node/.claude/projects:ro")
+if [ -f "$HOME/.claude/hooks.json" ]; then
+  MOUNTS+=(-v "$HOME/.claude/hooks.json:/home/node/.claude/hooks.json:ro")
+fi
+# GitHub CLI auth
+if [ -d "$HOME/.config/gh" ]; then
+  MOUNTS+=(-v "$HOME/.config/gh:/home/node/.config/gh:ro")
+fi
+
+# Git config
+if [ -f "$HOME/.gitconfig" ]; then
+  MOUNTS+=(-v "$HOME/.gitconfig:/home/node/.gitconfig:ro")
+fi
+
+# GCP credentials (for Vertex AI + gsutil)
+if [ -d "$HOME/.config/gcloud" ]; then
+  MOUNTS+=(-v "$HOME/.config/gcloud:/home/node/.config/gcloud:ro")
+fi
+if [ -f "$HOME/.boto" ]; then
+  MOUNTS+=(-v "$HOME/.boto:/home/node/.boto:ro")
+fi
+
+# ── Start container in background ─────────────────────────────────────
+echo "Starting container..."
+PROJECT_NAME="$(basename "$(pwd)")"
+podman run -d \
+  --name "$CONTAINER_NAME" \
+  -e "JAIL_PROJECT=$PROJECT_NAME" \
+  "${MOUNTS[@]}" \
+  "$IMAGE_NAME" >/dev/null
+
+# ── Copy plugins into container (writable) ───────────────────────────
+# Copied, not mounted — marketplace loader needs to rename files,
+# which fails on read-only mounts.
+if [ -d "$HOME/.claude/plugins" ]; then
+  podman cp "$HOME/.claude/plugins/." "$CONTAINER_NAME:/home/node/.claude/plugins"
+fi
+
+# ── Copy project into container ───────────────────────────────────────
+echo "Copying project into container..."
+podman cp "$(pwd)/." "$CONTAINER_NAME:/home/node/project"
+
+# In a worktree, .git is a pointer file — replace it with a standalone .git directory.
+if [ -f "$(pwd)/.git" ]; then
+  MAIN_GIT_DIR="$(git rev-parse --git-common-dir)"
+  WORKTREE_GIT_DIR="$(git rev-parse --git-dir)"
+
+  podman exec "$CONTAINER_NAME" rm /home/node/project/.git
+  podman exec "$CONTAINER_NAME" mkdir -p /home/node/project/.git
+  podman cp "$MAIN_GIT_DIR/objects" "$CONTAINER_NAME:/home/node/project/.git/objects"
+  podman cp "$MAIN_GIT_DIR/refs" "$CONTAINER_NAME:/home/node/project/.git/refs"
+  podman cp "$MAIN_GIT_DIR/packed-refs" "$CONTAINER_NAME:/home/node/project/.git/packed-refs" 2>/dev/null || true
+  podman cp "$MAIN_GIT_DIR/config" "$CONTAINER_NAME:/home/node/project/.git/config"
+  podman cp "$WORKTREE_GIT_DIR/HEAD" "$CONTAINER_NAME:/home/node/project/.git/HEAD"
+  podman cp "$WORKTREE_GIT_DIR/index" "$CONTAINER_NAME:/home/node/project/.git/index" 2>/dev/null || true
+fi
+
+# Fix ownership — podman cp copies files as root
+podman exec -u 0 "$CONTAINER_NAME" chown -R node:node /home/node/project /home/node/.claude
+
+podman exec "$CONTAINER_NAME" bash -c "cd /home/node/project && git config --global --add safe.directory /home/node/project"
+
+# ── Attach a shell ────────────────────────────────────────────────────
+echo "Container running. Attaching shell (exit won't stop the container)..."
+echo "Run 'claude --dangerously-skip-permissions' inside to start Claude."
+exec podman exec -w /home/node/project -it "$CONTAINER_NAME" zsh
