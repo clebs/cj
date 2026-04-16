@@ -76,15 +76,9 @@ if podman ps -aq -f name="^${CONTAINER_NAME}$" | grep -q .; then
   podman rm "$CONTAINER_NAME" >/dev/null
 fi
 
-# ── Collect credentials to mount ───────────────────────────────────────
+# ── Collect read-only mounts ──────────────────────────────────────────
 MOUNTS=()
 
-# Claude settings & project memory
-MOUNTS+=(-v "$HOME/.claude/settings.json:/home/node/.claude/settings.json:ro")
-MOUNTS+=(-v "$HOME/.claude/projects:/home/node/.claude/projects:ro")
-if [ -f "$HOME/.claude/hooks.json" ]; then
-  MOUNTS+=(-v "$HOME/.claude/hooks.json:/home/node/.claude/hooks.json:ro")
-fi
 # GitHub CLI auth
 if [ -d "$HOME/.config/gh" ]; then
   MOUNTS+=(-v "$HOME/.config/gh:/home/node/.config/gh:ro")
@@ -93,14 +87,6 @@ fi
 # Git config
 if [ -f "$HOME/.gitconfig" ]; then
   MOUNTS+=(-v "$HOME/.gitconfig:/home/node/.gitconfig:ro")
-fi
-
-# GCP credentials (for Vertex AI + gsutil)
-if [ -d "$HOME/.config/gcloud" ]; then
-  MOUNTS+=(-v "$HOME/.config/gcloud:/home/node/.config/gcloud:ro")
-fi
-if [ -f "$HOME/.boto" ]; then
-  MOUNTS+=(-v "$HOME/.boto:/home/node/.boto:ro")
 fi
 
 # ── Start container in background ─────────────────────────────────────
@@ -112,16 +98,24 @@ podman run -d \
   "${MOUNTS[@]}" \
   "$IMAGE_NAME" >/dev/null
 
-# ── Copy plugins into container (writable) ───────────────────────────
-# Copied, not mounted — marketplace loader needs to rename files,
-# which fails on read-only mounts.
-if [ -d "$HOME/.claude/plugins" ]; then
-  podman cp "$HOME/.claude/plugins/." "$CONTAINER_NAME:/home/node/.claude/plugins"
+# ── Copy host config into container (writable copies) ────────────────
+# Everything is copied, not mounted — container gets write access but
+# can't modify host files. Keeps --dangerously-skip-permissions isolated.
+
+# Claude config (settings, plugins, hooks, project memory)
+podman cp "$HOME/.claude/." "$CONTAINER_NAME:/home/node/.claude"
+
+# GCP credentials — gcloud needs to write token refresh files
+if [ -d "$HOME/.config/gcloud" ]; then
+  podman cp "$HOME/.config/gcloud/." "$CONTAINER_NAME:/home/node/.config/gcloud"
 fi
 
-# Fix ownership for plugins — podman cp copies files as root
-# Only chown plugins dir, not all of .claude (contains ro mounts).
-podman exec -u 0 "$CONTAINER_NAME" chown -R node:node /home/node/.claude/plugins 2>/dev/null || true
+# Rewrite hardcoded host home paths to match container home
+podman exec "$CONTAINER_NAME" find /home/node/.claude -type f -name '*.json' \
+  -exec sed -i "s|$HOME|/home/node|g" {} +
+
+# Fix ownership — podman cp copies files as root
+podman exec -u 0 "$CONTAINER_NAME" chown -R node:node /home/node/.claude /home/node/.config/gcloud 2>/dev/null || true
 
 podman exec "$CONTAINER_NAME" bash -c "git config --global --add safe.directory /home/node/project"
 
