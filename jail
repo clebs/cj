@@ -105,6 +105,11 @@ podman run -d \
 # Claude config (settings, plugins, hooks, project memory)
 podman cp "$HOME/.claude/." "$CONTAINER_NAME:/home/node/.claude"
 
+# Claude user-level config (MCPs, preferences)
+if [ -f "$HOME/.claude.json" ]; then
+  podman cp "$HOME/.claude.json" "$CONTAINER_NAME:/home/node/.claude.json"
+fi
+
 # GCP credentials — gcloud needs to write token refresh files
 if [ -d "$HOME/.config/gcloud" ]; then
   podman cp "$HOME/.config/gcloud/." "$CONTAINER_NAME:/home/node/.config/gcloud"
@@ -113,9 +118,21 @@ fi
 # Rewrite hardcoded host home paths to match container home
 podman exec "$CONTAINER_NAME" find /home/node/.claude -type f -name '*.json' \
   -exec sed -i "s|$HOME|/home/node|g" {} +
+# Rewrite .claude.json: keep only current project (remapped to /home/node/project), drop others
+HOST_PROJECT_DIR="$(pwd)"
+podman exec "$CONTAINER_NAME" node -e "
+  const fs = require('fs');
+  const f = '/home/node/.claude.json';
+  const c = JSON.parse(fs.readFileSync(f, 'utf8'));
+  const hostDir = process.argv[1];
+  const entry = c.projects?.[hostDir];
+  c.projects = {};
+  if (entry) c.projects['/home/node/project'] = entry;
+  fs.writeFileSync(f, JSON.stringify(c, null, 2));
+" "$HOST_PROJECT_DIR" 2>/dev/null || true
 
 # Fix ownership — podman cp copies files as root
-podman exec -u 0 "$CONTAINER_NAME" chown -R node:node /home/node/.claude /home/node/.config/gcloud 2>/dev/null || true
+podman exec -u 0 "$CONTAINER_NAME" chown -R node:node /home/node/.claude /home/node/.claude.json /home/node/.config/gcloud 2>/dev/null || true
 
 podman exec "$CONTAINER_NAME" bash -c "git config --global --add safe.directory /home/node/project"
 

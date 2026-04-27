@@ -22,6 +22,9 @@ RUN LAZYGIT_VERSION=$(curl -s "https://api.github.com/repos/jesseduffield/lazygi
     && install lazygit /usr/local/bin \
     && rm lazygit lazygit.tar.gz
 
+# Install uv (provides uvx) — needed for MCP servers
+RUN pip install --break-system-packages uv
+
 # Install Claude Code globally
 RUN npm install -g @anthropic-ai/claude-code
 
