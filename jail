@@ -3,9 +3,10 @@ set -euo pipefail
 
 # Build and run Claude Code in a persistent container.
 # Usage:
-#   ./jail          — start container, attach a shell
-#   ./jail build    — force rebuild the image, then start
-#   ./jail sync     — copy changes from container back to host
+#   cj              — start container, attach a shell
+#   cj build        — force rebuild the image, then start
+#   cj sync         — copy changes from container back to host
+#   cj destroy      — stop and remove the container for this project
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 IMAGE_NAME="claude-jail"
@@ -53,6 +54,18 @@ if [ "${1:-}" = "sync" ]; then
   done <<<"$MODIFIED"
 
   echo "Done. Review changes with 'git diff'."
+  exit 0
+fi
+
+# ── Destroy container ─────────────────────────────────────────────────
+if [ "${1:-}" = "destroy" ]; then
+  if ! podman ps -aq -f name="^${CONTAINER_NAME}$" | grep -q .; then
+    echo "No container found for $CONTAINER_NAME."
+    exit 0
+  fi
+  echo "Stopping and removing $CONTAINER_NAME..."
+  podman rm -f "$CONTAINER_NAME" >/dev/null
+  echo "Done."
   exit 0
 fi
 
