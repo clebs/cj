@@ -8,12 +8,16 @@ RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
     python3-venv \
-    golang \
     make \
     apt-transport-https \
     ca-certificates \
     gnupg \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Go from official tarball
+RUN GO_VERSION=$(curl -fsSL 'https://go.dev/VERSION?m=text' | head -1) \
+    && curl -fsSL "https://go.dev/dl/${GO_VERSION}.linux-amd64.tar.gz" | tar -C /usr/local -xz
+ENV PATH="/usr/local/go/bin:${PATH}"
 
 # Install lazygit
 RUN LAZYGIT_VERSION=$(curl -s "https://api.github.com/repos/jesseduffield/lazygit/releases/latest" | grep -Po '"tag_name": "v\K[^"]*') \
