@@ -76,7 +76,7 @@ if [ "${1:-}" = "refresh" ]; then
   fi
 
   echo "Refreshing project in $CONTAINER_NAME..."
-  podman exec "$CONTAINER_NAME" rm -rf /home/node/project
+  podman exec -u 0 "$CONTAINER_NAME" rm -rf /home/node/project
   podman exec "$CONTAINER_NAME" mkdir -p /home/node/project
   podman cp "$(pwd)/." "$CONTAINER_NAME:/home/node/project"
   podman exec -u 0 "$CONTAINER_NAME" chown -R node:node /home/node/project
