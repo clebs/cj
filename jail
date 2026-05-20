@@ -6,6 +6,7 @@ set -euo pipefail
 #   cj              — start container, attach a shell
 #   cj build        — force rebuild the image, then start
 #   cj sync         — copy changes from container back to host
+#   cj refresh      — re-copy project from host into container (destructive)
 #   cj destroy      — stop and remove the container for this project
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -54,6 +55,32 @@ if [ "${1:-}" = "sync" ]; then
   done <<<"$MODIFIED"
 
   echo "Done. Review changes with 'git diff'."
+  exit 0
+fi
+
+# ── Refresh project from host into container ─────────────────────────
+if [ "${1:-}" = "refresh" ]; then
+  if ! podman ps -q -f name="^${CONTAINER_NAME}$" | grep -q .; then
+    echo "Error: container $CONTAINER_NAME is not running." >&2
+    exit 1
+  fi
+
+  echo "WARNING: This will delete /home/node/project in the container"
+  echo "and replace it with the current host directory contents."
+  echo "Any unsynchronized changes in the container will be lost."
+  printf "\nContinue? [y/N] "
+  read -r answer
+  if [[ ! "$answer" =~ ^[Yy]$ ]]; then
+    echo "Aborted."
+    exit 0
+  fi
+
+  echo "Refreshing project in $CONTAINER_NAME..."
+  podman exec "$CONTAINER_NAME" rm -rf /home/node/project
+  podman exec "$CONTAINER_NAME" mkdir -p /home/node/project
+  podman cp "$(pwd)/." "$CONTAINER_NAME:/home/node/project"
+  podman exec -u 0 "$CONTAINER_NAME" chown -R node:node /home/node/project
+  echo "Done."
   exit 0
 fi
 
