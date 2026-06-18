@@ -13,6 +13,22 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 IMAGE_NAME="claude-jail"
 CONTAINER_NAME="claude-$(basename "$(pwd)" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g')"
 
+fix_worktree_git() {
+  if [ -f "$(pwd)/.git" ]; then
+    MAIN_GIT_DIR="$(git rev-parse --git-common-dir)"
+    WORKTREE_GIT_DIR="$(git rev-parse --git-dir)"
+
+    podman exec "$CONTAINER_NAME" rm /home/node/project/.git
+    podman exec "$CONTAINER_NAME" mkdir -p /home/node/project/.git
+    podman cp "$MAIN_GIT_DIR/objects" "$CONTAINER_NAME:/home/node/project/.git/objects"
+    podman cp "$MAIN_GIT_DIR/refs" "$CONTAINER_NAME:/home/node/project/.git/refs"
+    podman cp "$MAIN_GIT_DIR/packed-refs" "$CONTAINER_NAME:/home/node/project/.git/packed-refs" 2>/dev/null || true
+    podman cp "$MAIN_GIT_DIR/config" "$CONTAINER_NAME:/home/node/project/.git/config"
+    podman cp "$WORKTREE_GIT_DIR/HEAD" "$CONTAINER_NAME:/home/node/project/.git/HEAD"
+    podman cp "$WORKTREE_GIT_DIR/index" "$CONTAINER_NAME:/home/node/project/.git/index" 2>/dev/null || true
+  fi
+}
+
 FORCE_BUILD=false
 if [ "${1:-}" = "build" ]; then
   FORCE_BUILD=true
@@ -79,6 +95,7 @@ if [ "${1:-}" = "refresh" ]; then
   podman exec -u 0 "$CONTAINER_NAME" rm -rf /home/node/project
   podman exec "$CONTAINER_NAME" mkdir -p /home/node/project
   podman cp "$(pwd)/." "$CONTAINER_NAME:/home/node/project"
+  fix_worktree_git
   podman exec -u 0 "$CONTAINER_NAME" chown -R node:node /home/node/project
   echo "Done."
   exit 0
@@ -181,20 +198,7 @@ podman exec "$CONTAINER_NAME" bash -c "git config --global --add safe.directory 
 echo "Copying project into container..."
 podman cp "$(pwd)/." "$CONTAINER_NAME:/home/node/project"
 
-# In a worktree, .git is a pointer file — replace it with a standalone .git directory.
-if [ -f "$(pwd)/.git" ]; then
-  MAIN_GIT_DIR="$(git rev-parse --git-common-dir)"
-  WORKTREE_GIT_DIR="$(git rev-parse --git-dir)"
-
-  podman exec "$CONTAINER_NAME" rm /home/node/project/.git
-  podman exec "$CONTAINER_NAME" mkdir -p /home/node/project/.git
-  podman cp "$MAIN_GIT_DIR/objects" "$CONTAINER_NAME:/home/node/project/.git/objects"
-  podman cp "$MAIN_GIT_DIR/refs" "$CONTAINER_NAME:/home/node/project/.git/refs"
-  podman cp "$MAIN_GIT_DIR/packed-refs" "$CONTAINER_NAME:/home/node/project/.git/packed-refs" 2>/dev/null || true
-  podman cp "$MAIN_GIT_DIR/config" "$CONTAINER_NAME:/home/node/project/.git/config"
-  podman cp "$WORKTREE_GIT_DIR/HEAD" "$CONTAINER_NAME:/home/node/project/.git/HEAD"
-  podman cp "$WORKTREE_GIT_DIR/index" "$CONTAINER_NAME:/home/node/project/.git/index" 2>/dev/null || true
-fi
+fix_worktree_git
 
 # Fix ownership for project — podman cp copies files as root
 podman exec -u 0 "$CONTAINER_NAME" chown -R node:node /home/node/project
