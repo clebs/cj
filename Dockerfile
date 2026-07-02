@@ -1,4 +1,4 @@
-FROM node:22-slim
+FROM debian:bookworm-slim
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -12,6 +12,8 @@ RUN apt-get update && apt-get install -y \
     apt-transport-https \
     ca-certificates \
     gnupg \
+    jq \
+    vim \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Go from official tarball
@@ -26,11 +28,13 @@ RUN LAZYGIT_VERSION=$(curl -s "https://api.github.com/repos/jesseduffield/lazygi
     && install lazygit /usr/local/bin \
     && rm lazygit lazygit.tar.gz
 
+# Install Node.js (needed by some Claude MCP plugins)
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install uv (provides uvx) — needed for MCP servers
 RUN pip install --break-system-packages uv
-
-# Install Claude Code globally
-RUN npm install -g @anthropic-ai/claude-code
 
 # Install GitHub CLI
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
@@ -50,25 +54,28 @@ RUN echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.
 COPY scripts/git-wrapper.sh /usr/local/bin/git
 RUN chmod +x /usr/local/bin/git
 
-# Shell config
-COPY scripts/.zshrc /home/node/.zshrc
+# Create cj user (UID 1000) with zsh
+RUN useradd -m -u 1000 -s /bin/zsh cj
 
-# Set zsh as default shell for node user
-RUN usermod -s /bin/zsh node
+# Shell config
+COPY scripts/.zshrc /home/cj/.zshrc
 
 # Pre-create directories that will be used as mount points or by podman cp,
-# so they exist and are owned by node before any runtime mounts.
-RUN mkdir -p /home/node/.claude \
-             /home/node/.config/gh \
-             /home/node/.config/gcloud \
-             /home/node/project
+# so they exist and are owned by cj before any runtime mounts.
+RUN mkdir -p /home/cj/.claude \
+             /home/cj/.config/gh \
+             /home/cj/.config/gcloud \
+             /home/cj/project
 
-# Ensure node user owns its home directory
-RUN chown -R node:node /home/node
+# Ensure cj user owns its home directory
+RUN chown -R cj:cj /home/cj
 
-# Use existing node user (UID 1000) — matches podman rootless default mapping
-USER node
-WORKDIR /home/node
+# Install Claude Code via native installer
+USER cj
+RUN curl -fsSL https://claude.ai/install.sh | bash
+ENV PATH="/home/cj/.local/bin:${PATH}"
+
+WORKDIR /home/cj
 
 # Project is copied in by the run script after container start
 # Keep container alive; user attaches via exec
