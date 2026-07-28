@@ -160,7 +160,9 @@ podman run -d \
 # can't modify host files. Keeps --dangerously-skip-permissions isolated.
 
 # Claude config (settings, plugins, hooks, project memory)
-podman cp "$HOME/.claude/." "$CONTAINER_NAME:/home/cj/.claude"
+# Use tar --dereference so symlinks are resolved to actual files —
+# targets may not exist inside the container.
+tar -chf - --no-xattrs -C "$HOME" .claude | podman exec -i "$CONTAINER_NAME" tar -xf - -C /home/cj
 
 # Claude user-level config (MCPs, preferences)
 if [ -f "$HOME/.claude.json" ]; then
