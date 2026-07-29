@@ -70,6 +70,25 @@ if [ "${1:-}" = "sync" ]; then
     echo "  synced: $f"
   done <<<"$MODIFIED"
 
+  # Copy Claude session data back (token usage, conversation history).
+  # Session files are UUID-named so they never collide across runs.
+  # Skip memory/ to avoid overwriting host-edited memory files.
+  CONTAINER_PROJECT="-home-cj-project"
+  HOST_PROJECT="$(pwd | tr '/.' '-')"
+  if podman exec "$CONTAINER_NAME" test -d "/home/cj/.claude/projects/$CONTAINER_PROJECT"; then
+    mkdir -p "$HOME/.claude/projects/$HOST_PROJECT"
+    SESSION_FILES=$(podman exec "$CONTAINER_NAME" \
+      find "/home/cj/.claude/projects/$CONTAINER_PROJECT" \( -name '*.jsonl' -o -name '*.json' \) -printf '%P\n')
+    for f in $SESSION_FILES; do
+      mkdir -p "$HOME/.claude/projects/$HOST_PROJECT/$(dirname -- "$f")"
+      podman cp "$CONTAINER_NAME:/home/cj/.claude/projects/$CONTAINER_PROJECT/$f" \
+        "$HOME/.claude/projects/$HOST_PROJECT/$f"
+    done
+    echo "  synced: session data"
+  else
+    echo "  warning: no Claude session data found in container"
+  fi
+
   echo "Done. Review changes with 'git diff'."
   exit 0
 fi
