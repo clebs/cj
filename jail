@@ -5,7 +5,7 @@ set -euo pipefail
 # Usage:
 #   cj              — start container, attach a shell
 #   cj build        — force rebuild the image, then start
-#   cj sync         — copy changes from container back to host
+#   cj sync         — copy changes and usage data from container back to host
 #   cj refresh      — re-copy project from host into container (destructive)
 #   cj destroy      — stop and remove the container for this project
 
