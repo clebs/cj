@@ -45,7 +45,7 @@ if [ "${1:-}" = "sync" ]; then
 
   # Get all changed files from the container
   STATUS=$(podman exec -w /home/cj/project "$CONTAINER_NAME" \
-    git status --porcelain -uall)
+    git status --porcelain)
   if [ -z "$STATUS" ]; then
     echo "No changes to sync."
     exit 0
