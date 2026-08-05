@@ -126,6 +126,16 @@ if [ "${1:-}" = "destroy" ]; then
     echo "No container found for $CONTAINER_NAME."
     exit 0
   fi
+
+  echo "WARNING: This will permanently destroy container $CONTAINER_NAME."
+  echo "Any unsynchronized changes in the container will be lost."
+  printf "\nContinue? [y/N] "
+  read -r answer
+  if [[ ! "$answer" =~ ^[Yy]$ ]]; then
+    echo "Aborted."
+    exit 0
+  fi
+
   echo "Stopping and removing $CONTAINER_NAME..."
   podman rm -f "$CONTAINER_NAME" >/dev/null
   echo "Done."
