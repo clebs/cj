@@ -1,4 +1,4 @@
-# cj — Claude Jail
+# cj — Clanker Jail
 
 Run Claude Code and pi inside a sandboxed Podman container. The agents can read your code, commit changes, and use tools — but cannot push code or modify your host filesystem.
 

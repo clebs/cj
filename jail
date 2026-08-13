@@ -10,8 +10,8 @@ set -euo pipefail
 #   cj destroy      — stop and remove the container for this project
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-IMAGE_NAME="claude-jail"
-CONTAINER_NAME="claude-$(basename "$(pwd)" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g')"
+IMAGE_NAME="clanker-jail"
+CONTAINER_NAME="cj-$(basename "$(pwd)" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g')"
 
 fix_worktree_git() {
   if [ -f "$(pwd)/.git" ]; then
