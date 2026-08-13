@@ -63,6 +63,7 @@ COPY scripts/.zshrc /home/cj/.zshrc
 # Pre-create directories that will be used as mount points or by podman cp,
 # so they exist and are owned by cj before any runtime mounts.
 RUN mkdir -p /home/cj/.claude \
+             /home/cj/.pi \
              /home/cj/.config/gh \
              /home/cj/.config/gcloud \
              /home/cj/project
@@ -74,6 +75,13 @@ RUN chown -R cj:cj /home/cj
 USER cj
 RUN curl -fsSL https://claude.ai/install.sh | bash
 ENV PATH="/home/cj/.local/bin:${PATH}"
+
+# Install pi coding agent + dependencies (fd, ripgrep)
+USER root
+RUN apt-get update && apt-get install -y fd-find ripgrep && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/fdfind /usr/local/bin/fd \
+    && npm install -g @earendil-works/pi-coding-agent
+USER cj
 
 WORKDIR /home/cj
 

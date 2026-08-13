@@ -89,6 +89,22 @@ if [ "${1:-}" = "sync" ]; then
     echo "  warning: no Claude session data found in container"
   fi
 
+  # Copy pi session data back.
+  # Pi encodes paths as --{path with / replaced by -}--
+  # e.g. /home/cj/project -> --home-cj-project--
+  CONTAINER_PI_PROJECT="--home-cj-project--"
+  HOST_PI_PROJECT="--$(echo "$(pwd)" | sed 's|^/||; s|/|-|g')--"
+  if podman exec "$CONTAINER_NAME" test -d "/home/cj/.pi/agent/sessions/$CONTAINER_PI_PROJECT"; then
+    mkdir -p "$HOME/.pi/agent/sessions/$HOST_PI_PROJECT"
+    PI_SESSION_FILES=$(podman exec "$CONTAINER_NAME" \
+      find "/home/cj/.pi/agent/sessions/$CONTAINER_PI_PROJECT" -name '*.jsonl' -printf '%P\n')
+    for f in $PI_SESSION_FILES; do
+      podman cp "$CONTAINER_NAME:/home/cj/.pi/agent/sessions/$CONTAINER_PI_PROJECT/$f" \
+        "$HOME/.pi/agent/sessions/$HOST_PI_PROJECT/$f"
+    done
+    echo "  synced: pi session data"
+  fi
+
   echo "Done. Review changes with 'git diff'."
   exit 0
 fi
@@ -178,9 +194,15 @@ fi
 # ── Start container in background ─────────────────────────────────────
 echo "Starting container..."
 PROJECT_NAME="$(basename "$(pwd)")"
+# Forward Vertex AI / provider env vars if set on host
+ENV_ARGS=(-e "JAIL_PROJECT=$PROJECT_NAME")
+for var in GOOGLE_CLOUD_PROJECT GOOGLE_CLOUD_LOCATION ANTHROPIC_VERTEX_PROJECT_ID ANTHROPIC_API_KEY; do
+  [ -n "${!var:-}" ] && ENV_ARGS+=(-e "$var=${!var}")
+done
+
 podman run -d \
   --name "$CONTAINER_NAME" \
-  -e "JAIL_PROJECT=$PROJECT_NAME" \
+  "${ENV_ARGS[@]}" \
   "${MOUNTS[@]}" \
   "$IMAGE_NAME" >/dev/null
 
@@ -192,6 +214,11 @@ podman run -d \
 # Use tar --dereference so symlinks are resolved to actual files —
 # targets may not exist inside the container.
 tar -chf - --no-xattrs -C "$HOME" .claude | podman exec -i "$CONTAINER_NAME" tar -xf - -C /home/cj
+
+# Pi config (settings, extensions, auth)
+if [ -d "$HOME/.pi" ]; then
+  tar -chf - --no-xattrs -C "$HOME" .pi | podman exec -i "$CONTAINER_NAME" tar -xf - -C /home/cj
+fi
 
 # Claude user-level config (MCPs, preferences)
 if [ -f "$HOME/.claude.json" ]; then
@@ -206,6 +233,22 @@ fi
 # Rewrite hardcoded host home paths to match container home
 podman exec "$CONTAINER_NAME" find /home/cj/.claude -type f -name '*.json' \
   -exec sed -i "s|$HOME|/home/cj|g" {} +
+podman exec "$CONTAINER_NAME" find /home/cj/.pi -type f -name '*.json' \
+  -exec sed -i "s|$HOME|/home/cj|g" {} + 2>/dev/null || true
+# Remap session directories: host project path -> container project path
+# so agents can find existing sessions for this project inside the container.
+HOST_CLAUDE_SESSION="$(pwd | tr '/.' '-')"
+CONTAINER_CLAUDE_SESSION="-home-cj-project"
+if podman exec "$CONTAINER_NAME" test -d "/home/cj/.claude/projects/$HOST_CLAUDE_SESSION"; then
+  podman exec "$CONTAINER_NAME" mv "/home/cj/.claude/projects/$HOST_CLAUDE_SESSION" \
+    "/home/cj/.claude/projects/$CONTAINER_CLAUDE_SESSION"
+fi
+HOST_PI_SESSION="--$(echo "$(pwd)" | sed 's|^/||; s|/|-|g')--"
+CONTAINER_PI_SESSION="--home-cj-project--"
+if podman exec "$CONTAINER_NAME" test -d "/home/cj/.pi/agent/sessions/$HOST_PI_SESSION"; then
+  podman exec "$CONTAINER_NAME" mv "/home/cj/.pi/agent/sessions/$HOST_PI_SESSION" \
+    "/home/cj/.pi/agent/sessions/$CONTAINER_PI_SESSION"
+fi
 # Rewrite .claude.json: keep only current project (remapped to /home/cj/project), drop others
 HOST_PROJECT_DIR="$(pwd)"
 podman exec "$CONTAINER_NAME" bash -c "
@@ -215,7 +258,7 @@ podman exec "$CONTAINER_NAME" bash -c "
 " 2>/dev/null || true
 
 # Fix ownership — podman cp copies files as root
-podman exec -u 0 "$CONTAINER_NAME" chown -R cj:cj /home/cj/.claude /home/cj/.claude.json /home/cj/.config/gcloud 2>/dev/null || true
+podman exec -u 0 "$CONTAINER_NAME" chown -R cj:cj /home/cj/.claude /home/cj/.claude.json /home/cj/.pi /home/cj/.config/gcloud 2>/dev/null || true
 
 podman exec "$CONTAINER_NAME" bash -c "git config --global --add safe.directory /home/cj/project"
 

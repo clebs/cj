@@ -1,6 +1,6 @@
 # cj — Claude Jail
 
-Run Claude Code inside a sandboxed Podman container. The agent can read your code, commit changes, and use tools — but cannot push code or modify your host filesystem.
+Run Claude Code and pi inside a sandboxed Podman container. The agents can read your code, commit changes, and use tools — but cannot push code or modify your host filesystem.
 
 ## Quick start
 
@@ -13,6 +13,7 @@ Inside the container:
 
 ```bash
 agent                     # alias for: claude --dangerously-skip-permissions
+pi                        # pi runs without permission gates by default
 ```
 
 ## Commands
@@ -25,11 +26,11 @@ agent                     # alias for: claude --dangerously-skip-permissions
 
 ## How it works
 
-1. **Image** — Node 22 + Claude Code + git + gh + gcloud + lazygit + zsh
+1. **Image** — Node 22 + Claude Code + pi + git + gh + gcloud + lazygit + zsh
 2. **Container per project** — Named `claude-<project>`, persistent across sessions (`exit` doesn't stop it)
 3. **Project copied in** — Your working directory is copied into the container (including git worktrees)
 4. **Credentials mounted read-only** — `.claude/settings.json`, `.claude/projects`, `.gitconfig`, `gh` auth, `gcloud` credentials
-5. **Plugins copied (writable)** — Claude plugins are copied in rather than mounted so the marketplace loader can write to them
+5. **Plugins copied (writable)** — Claude plugins and pi extensions are copied in rather than mounted so loaders can write to them
 6. **`git push` blocked** — A wrapper script intercepts `git push` and rejects it; push from the host after reviewing
 
 ## Syncing changes back
@@ -56,5 +57,13 @@ This uses `git status` inside the container to detect changes and copies modifie
 
 ## Requirements
 
-- [Podman](https://podman.io/)
-- An `ANTHROPIC_API_KEY` (or Vertex AI credentials) set in your environment
+**Host tools:**
+
+- [Podman](https://podman.io/) — container runtime
+- [git](https://git-scm.com/) — used by `sync` and worktree support
+- [jq](https://jqlang.org/) — used to rewrite Claude's `.claude.json` project mapping
+
+**Credentials (set as environment variables on the host):**
+
+- `ANTHROPIC_API_KEY` or Vertex AI credentials (`GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`) for the AI provider
+- Jira, GCP, and other service credentials can be configured in agent config files (`~/.claude.json`, `~/.pi/agent/mcp.json`) and are copied into the container automatically
