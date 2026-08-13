@@ -34,7 +34,8 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv (provides uvx) — needed for MCP servers
-RUN pip install --break-system-packages uv
+# Install pre-commit — needed by Claude openshift-developer plugin hooks
+RUN pip install --break-system-packages uv pre-commit
 
 # Install GitHub CLI
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
