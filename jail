@@ -65,7 +65,13 @@ if [ "${1:-}" = "sync" ]; then
 
   while IFS= read -r f; do
     [ -z "$f" ] && continue
-    mkdir -p "$(dirname "$f")"
+    # For directory entries (trailing / from git status), create the dir itself;
+    # dirname would just return "." for top-level directories like "newdir/"
+    if [[ "$f" == */ ]]; then
+      mkdir -p "$f"
+    else
+      mkdir -p "$(dirname "$f")"
+    fi
     podman cp "$CONTAINER_NAME:/home/cj/project/$f" "$f"
     echo "  synced: $f"
   done <<<"$MODIFIED"
