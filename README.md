@@ -2,6 +2,17 @@
 
 Run Claude Code and pi inside a sandboxed Podman container. The agents can read your code, commit changes, and use tools — but cannot push code or modify your host filesystem.
 
+## Requirements
+
+### Host tools
+
+- [Podman](https://podman.io/) — container runtime
+- [git](https://git-scm.com/) — used by `sync` and worktree support
+- [jq](https://jqlang.org/) — used to rewrite Claude's `.claude.json` project mapping
+
+### Credentials
+All credentials configured inside supported harnesses are automatically copied into the container. All cloud models and private MCP servers should be accessible just as in the host.
+
 ## Quick start
 
 ```bash
@@ -19,14 +30,14 @@ pi                        # pi runs without permission gates by default
 ## Commands
 
 | Command | Description |
-|---------|-------------|
+| --------- | ------------- |
 | `./jail` | Start container and attach shell (builds image on first run) |
 | `./jail build` | Force rebuild the image, then start |
 | `./jail sync` | Copy changed files from container back to host |
 
 ## How it works
 
-1. **Image** — Node 22 + Claude Code + pi + git + gh + gcloud + lazygit + zsh
+1. **Image** — Debian Bookworm + Node 22 + Claude Code + pi + git + gh + gcloud + lazygit + zsh
 2. **Container per project** — Named `claude-<project>`, persistent across sessions (`exit` doesn't stop it)
 3. **Project copied in** — Your working directory is copied into the container (including git worktrees)
 4. **Credentials mounted read-only** — `.claude/settings.json`, `.claude/projects`, `.gitconfig`, `gh` auth, `gcloud` credentials
@@ -35,7 +46,7 @@ pi                        # pi runs without permission gates by default
 
 ## Syncing changes back
 
-Claude works on a copy of your project. To get changes back:
+The LLM on the container works on a copy of your project. To get changes back:
 
 ```bash
 ./jail sync
@@ -54,16 +65,3 @@ This uses `git status` inside the container to detect changes and copies modifie
 │   └── .zshrc              # Shell config with aliases and prompt
 └── .dockerignore
 ```
-
-## Requirements
-
-**Host tools:**
-
-- [Podman](https://podman.io/) — container runtime
-- [git](https://git-scm.com/) — used by `sync` and worktree support
-- [jq](https://jqlang.org/) — used to rewrite Claude's `.claude.json` project mapping
-
-**Credentials (set as environment variables on the host):**
-
-- `ANTHROPIC_API_KEY` or Vertex AI credentials (`GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`) for the AI provider
-- Jira, GCP, and other service credentials can be configured in agent config files (`~/.claude.json`, `~/.pi/agent/mcp.json`) and are copied into the container automatically
