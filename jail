@@ -184,6 +184,15 @@ if podman ps -aq -f name="^${CONTAINER_NAME}$" | grep -q .; then
   podman rm "$CONTAINER_NAME" >/dev/null
 fi
 
+# ── Host-accessible port forwarding (e.g. local model servers) ────────
+# JAIL_HOST_PORT: space-separated list of host ports the container can
+# reach via host.containers.internal (default: 8080, mlx_lm.serve).
+# This adds --network=pasta:-T,<ports> so only listed TCP ports are
+# forwarded from the container to the host.
+HOST_PORTS="${JAIL_HOST_PORT:-8080}"
+PASTA_PORTS=$(echo "$HOST_PORTS" | tr ' ' ',')
+NET_ARGS=(--network "pasta:-T,${PASTA_PORTS}")
+
 # ── Collect read-only mounts ──────────────────────────────────────────
 MOUNTS=()
 
@@ -209,6 +218,7 @@ done
 podman run -d \
   --name "$CONTAINER_NAME" \
   "${ENV_ARGS[@]}" \
+  "${NET_ARGS[@]}" \
   "${MOUNTS[@]}" \
   "$IMAGE_NAME" >/dev/null
 
@@ -241,6 +251,11 @@ podman exec "$CONTAINER_NAME" find /home/cj/.claude -type f -name '*.json' \
   -exec sed -i "s|$HOME|/home/cj|g" {} +
 podman exec "$CONTAINER_NAME" find /home/cj/.pi -type f -name '*.json' \
   -exec sed -i "s|$HOME|/home/cj|g" {} + 2>/dev/null || true
+# Rewrite localhost URLs so container can reach host services via pasta
+podman exec "$CONTAINER_NAME" find /home/cj/.pi -type f -name '*.json' \
+  -exec sed -i 's|://localhost:|://host.containers.internal:|g' {} + 2>/dev/null || true
+podman exec "$CONTAINER_NAME" find /home/cj/.claude -type f -name '*.json' \
+  -exec sed -i 's|://localhost:|://host.containers.internal:|g' {} + 2>/dev/null || true
 # Remap session directories: host project path -> container project path
 # so agents can find existing sessions for this project inside the container.
 HOST_CLAUDE_SESSION="$(pwd | tr '/.' '-')"
