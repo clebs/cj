@@ -178,10 +178,13 @@ else
   echo "Image $IMAGE_NAME already exists, skipping build."
 fi
 
-# Clean up stopped container with same name
+# Restart stopped container with same name
 if podman ps -aq -f name="^${CONTAINER_NAME}$" | grep -q .; then
-  echo "Removing stopped container..."
-  podman rm "$CONTAINER_NAME" >/dev/null
+  echo "Restarting stopped container $CONTAINER_NAME..."
+  podman start "$CONTAINER_NAME" >/dev/null
+  echo "Container running. Attaching shell (exit won't stop the container)..."
+  echo "Run 'claude --dangerously-skip-permissions' inside to start Claude."
+  exec podman exec -w /home/cj/project -it "$CONTAINER_NAME" zsh
 fi
 
 # ── Host-accessible port forwarding (e.g. local model servers) ────────
