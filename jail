@@ -7,6 +7,7 @@ set -euo pipefail
 #   cj build        — force rebuild the image, then start
 #   cj sync         — copy changes and usage data from container back to host
 #   cj refresh      — re-copy project from host into container (destructive)
+#   cj stop         — stop the container (keeps state)
 #   cj destroy      — stop and remove the container for this project
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -139,6 +140,19 @@ if [ "${1:-}" = "refresh" ]; then
   fix_worktree_git
   podman exec -u 0 "$CONTAINER_NAME" chown -R cj:cj /home/cj/project
   echo "Done."
+  exit 0
+fi
+
+# ── Stop container ────────────────────────────────────────────────────
+if [ "${1:-}" = "stop" ]; then
+  if ! podman ps -q -f name="^${CONTAINER_NAME}$" | grep -q .; then
+    echo "Container $CONTAINER_NAME is not running."
+    exit 0
+  fi
+
+  echo "Stopping $CONTAINER_NAME..."
+  podman stop "$CONTAINER_NAME" >/dev/null
+  echo "Done. Run 'cj' to restart."
   exit 0
 fi
 
