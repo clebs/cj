@@ -70,10 +70,11 @@ if [ "${1:-}" = "sync" ]; then
     # dirname would just return "." for top-level directories like "newdir/"
     if [[ "$f" == */ ]]; then
       mkdir -p "$f"
+      podman cp "$CONTAINER_NAME:/home/cj/project/${f}." "$f"
     else
       mkdir -p "$(dirname "$f")"
+      podman cp "$CONTAINER_NAME:/home/cj/project/$f" "$f"
     fi
-    podman cp "$CONTAINER_NAME:/home/cj/project/$f" "$f"
     echo "  synced: $f"
   done <<<"$MODIFIED"
 
