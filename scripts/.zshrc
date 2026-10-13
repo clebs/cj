@@ -27,6 +27,9 @@ alias gw='git worktree'
 alias gss='git status --short'
 alias glo='git log --oneline --decorate'
 alias agent='claude --dangerously-skip-permissions'
+alias l='ls -lah'
+alias ll='ls -lh'
+
 
 # Prompt — show container name
 PROMPT="%F{cyan}[jail-${JAIL_PROJECT:-?}]%f %F{blue}%~%f %# "
