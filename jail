@@ -48,35 +48,29 @@ if [ "${1:-}" = "sync" ]; then
   STATUS=$(podman exec -w /home/cj/project "$CONTAINER_NAME" \
     git status --porcelain)
   if [ -z "$STATUS" ]; then
-    echo "No changes to sync."
-    exit 0
+    echo "No file changes to sync."
+  else
+    # Delete locally any files deleted in the container
+    echo "$STATUS" | grep '^ D ' | sed 's/^...//' | while IFS= read -r f; do
+      [ -n "$f" ] && rm -f "$(pwd)/$f" && echo "  deleted: $f"
+    done || true
+
+    # Copy modified/added files one by one
+    MODIFIED=$(echo "$STATUS" | grep -v '^ D ' | sed 's/^...//' || true)
+    while IFS= read -r f; do
+      [ -z "$f" ] && continue
+      # For directory entries (trailing / from git status), create the dir itself;
+      # dirname would just return "." for top-level directories like "newdir/"
+      if [[ "$f" == */ ]]; then
+        mkdir -p "$f"
+        podman cp "$CONTAINER_NAME:/home/cj/project/${f}." "$f"
+      else
+        mkdir -p "$(dirname "$f")"
+        podman cp "$CONTAINER_NAME:/home/cj/project/$f" "$f"
+      fi
+      echo "  synced: $f"
+    done <<<"$MODIFIED"
   fi
-
-  # Delete locally any files deleted in the container
-  echo "$STATUS" | grep '^ D ' | sed 's/^...//' | while IFS= read -r f; do
-    [ -n "$f" ] && rm -f "$(pwd)/$f" && echo "  deleted: $f"
-  done || true
-
-  # Copy modified/added files one by one
-  MODIFIED=$(echo "$STATUS" | grep -v '^ D ' | sed 's/^...//' || true)
-  if [ -z "$MODIFIED" ]; then
-    echo "Done. Review changes with 'git diff'."
-    exit 0
-  fi
-
-  while IFS= read -r f; do
-    [ -z "$f" ] && continue
-    # For directory entries (trailing / from git status), create the dir itself;
-    # dirname would just return "." for top-level directories like "newdir/"
-    if [[ "$f" == */ ]]; then
-      mkdir -p "$f"
-      podman cp "$CONTAINER_NAME:/home/cj/project/${f}." "$f"
-    else
-      mkdir -p "$(dirname "$f")"
-      podman cp "$CONTAINER_NAME:/home/cj/project/$f" "$f"
-    fi
-    echo "  synced: $f"
-  done <<<"$MODIFIED"
 
   # Copy Claude session data back (token usage, conversation history).
   # Session files are UUID-named so they never collide across runs.
@@ -177,6 +171,13 @@ if [ "${1:-}" = "destroy" ]; then
   podman rm -f "$CONTAINER_NAME" >/dev/null
   echo "Done."
   exit 0
+fi
+
+# ── Reject unknown commands ────────────────────────────────────────────
+if [ -n "${1:-}" ]; then
+  echo "Error: unknown command '$1'" >&2
+  echo "Usage: cj [build] [sync|refresh|stop|destroy]" >&2
+  exit 1
 fi
 
 # ── Reuse running container if it exists ──────────────────────────────
